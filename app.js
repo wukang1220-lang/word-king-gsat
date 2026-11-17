@@ -150,7 +150,7 @@ function progressBar(value, max, label) {
 }
 
 function audioButton(word) {
-  return `<button class="icon-button" data-say="${esc(word)}" aria-label="播放 ${esc(word)} 的發音">${icon("volume")}</button>`;
+  return `<button class="icon-button" data-say="${esc(word)}" aria-label="播放 ${esc(word)} 的發音" title="播放單字發音">${icon("volume")}</button>`;
 }
 
 function starButton(word) {
@@ -278,13 +278,13 @@ function exampleCredit(id, author) {
 
 function exampleLine(english, chinese, englishId, englishAuthor, chineseId, chineseAuthor) {
   return `<div class="example">
-    <div><span lang="en">${esc(english)}</span>
-      ${chinese ? `<small>${esc(chinese)}</small>` : ""}
+    <div class="example-text"><span lang="en">${esc(english)}</span>
+      ${chinese ? `<small lang="zh-Hant">${esc(chinese)}${englishId && !chineseId ? ' <span class="translation-note">機器翻譯</span>' : ""}</small>` : ""}
       ${englishId ? `<small class="example-credit">Tatoeba · ${exampleCredit(englishId, englishAuthor)}
         ${chineseId ? ` / ${exampleCredit(chineseId, chineseAuthor)}` : ""}</small>` : ""}
     </div>
     <button class="icon-button sentence-audio" data-say="${esc(english)}" aria-label="朗讀例句：${esc(english)}" title="朗讀例句">
-      ${icon("volume")}
+      ${icon("volume")}<span class="sentence-audio-label">聽例句</span>
     </button>
   </div>`;
 }
@@ -368,14 +368,14 @@ function wordList(items, withReviewStatus = false) {
         <span class="word-gloss"><small>${esc(word.p)}</small>${esc(word.d)}</span>
         <div class="word-labels">${withReviewStatus ? status : tag(word.level ? `第 ${word.level} 級` : "延伸字", tierColors[word.t])}${examBadge(word)}</div>
         <div class="row-actions">${audioButton(word.w)}${starButton(word.w)}</div>
-        ${withReviewStatus ? wordExample(word) : ""}
+        ${wordExample(word)}
       </li>`;
     }).join("")}
   </ul></div>`;
 }
 
 function renderBank() {
-  main.innerHTML = pageTitle("高中單字庫", `搜尋 ${number.format(lexicon.length)} 個字詞；點單字可查釋義、拆字線索與歷屆出現紀錄。`) + `
+  main.innerHTML = pageTitle("高中單字庫", `搜尋 ${number.format(lexicon.length)} 個字詞，可直接看中英例句，並分別聽單字和例句發音。點單字查看歷屆出現紀錄和拆字線索。`) + `
     <div class="search-controls">
       <label class="search">${icon("search")}<input id="query" aria-label="搜尋英文或中文" placeholder="搜尋英文或中文，例如 transport" value="${esc(bankFilter.query)}"></label>
       <select id="tier" aria-label="字彙分級">
@@ -501,6 +501,7 @@ function renderSources() {
           <li>分科測驗自 111 學年度起未設英文考科。<a href="https://www.ceec.edu.tw/xmdoc/cont?sid=0J270516560005218952&xsmsid=0J018585845010094026" target="_blank" rel="noopener">大考中心考試說明</a></li>
           <li>部分釋義由 <a href="https://github.com/skywind3000/ECDICT" target="_blank" rel="noopener">ECDICT</a> 摘整並轉換為繁體中文。<a href="dictionary-license.txt">MIT 授權聲明</a></li>
           <li>部分例句及翻譯選自 <a href="https://tatoeba.org/" target="_blank" rel="noopener">Tatoeba</a>，使用 <a href="https://creativecommons.org/licenses/by/2.0/fr/" target="_blank" rel="noopener">CC BY 2.0 FR</a> 授權。作者及原句連結在例句下方，中文翻譯轉為繁體。</li>
+          <li>標示「機器翻譯」的譯文使用 <a href="https://github.com/argosopentech/argospm-index" target="_blank" rel="noopener">Argos Translate</a> 英譯中模型產生。模型源自 Jörg Tiedemann 與 Santhosh Thottingal 的 <a href="https://aclanthology.org/2020.eamt-1.61/" target="_blank" rel="noopener">OPUS-MT</a>，以 <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> 授權。</li>
         </ul>
         <div class="quiz-foot"><a class="btn line" href="vocab.csv" download="單字王-高中學測字庫.csv">${icon("download")} 下載完整字庫</a></div>
       </section>
