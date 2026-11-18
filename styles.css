@@ -358,6 +358,12 @@ body { background: var(--bg); }
 .parts span { background: #e5f1e9; color: #235742; border-radius: 6px; padding: 3px 8px; font: 800 0.9375rem/1.4 ui-monospace, Consolas, monospace; }
 .parts b { color: #506b5c; }
 .family-example > .tag { align-self: start; justify-self: start; }
+.family-overview { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.family-overview p { margin-top: 4px; }
+.family-overview .filter-row { margin: 0; }
+.family-search { max-width: 35rem; margin-bottom: 9px; }
+.family-result-count { margin-bottom: 11px; }
+.family-decks { margin: 0 0 14px; }
 .evidence-stats { margin-top: 0; }
 .exam-feature { margin-bottom: 25px; }
 .exam-feature .section-head { flex-wrap: wrap; }

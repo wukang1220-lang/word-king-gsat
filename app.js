@@ -1,7 +1,6 @@
 "use strict";
 
 const lexicon = window.LEXICON;
-const lessons = window.LESSONS;
 const tiers = ["基礎 · 1–2 級", "進階 · 3–4 級", "挑戰 · 5–6 級", "延伸字"];
 const tierColors = ["mint", "purp", "orange", "pink"];
 const familyColors = { 字首: "purp", 字根: "mint", 字尾: "orange", 合成字: "pink" };
@@ -27,7 +26,9 @@ const taipeiLabel = new Intl.DateTimeFormat("zh-TW", {
 const number = new Intl.NumberFormat("zh-TW");
 const keyOf = (word) => word.toLowerCase();
 const words = new Map(lexicon.map((word) => [keyOf(word.w), word]));
+const lessons = buildLessonIndex();
 const familyById = new Map(lessons.map((lesson) => [lesson.id, lesson]));
+const totalDecks = lessons.reduce((sum, lesson) => sum + lesson.decks.length, 0);
 const examYears = Object.keys(window.EXAMS).map(Number);
 const yearCount = (word) => Object.keys(word.y).length;
 const appearances = (word) => Object.values(word.y).reduce((sum, count) => sum + count, 0);
@@ -41,6 +42,8 @@ const trackLessons = [...lessons].sort((a, b) =>
 const stats = loadProgress();
 const bankFilter = { query: "", tier: "all", family: "all", personal: "all", examFilter: "all", page: 1 };
 let familyFilter = "全部";
+let familyQuery = "";
+let familyPage = 1;
 let reviewFilter = "全部";
 let practice = null;
 let toastTimer;
@@ -49,6 +52,28 @@ let dialogTrigger = null;
 let speechRate = loadSpeechRate();
 let fontSize = loadFontSize();
 document.documentElement.dataset.fontSize = fontSize;
+
+function buildLessonIndex() {
+  const index = new Map();
+  for (const lesson of window.LESSONS) {
+    index.set(lesson.id, { ...lesson, words: [...lesson.words], decks: [[...lesson.words]] });
+  }
+  for (const expansion of window.MORPHOLOGY) {
+    const lesson = index.get(expansion.id) || { ...expansion, words: [], decks: [] };
+    const entries = expansion.words;
+    lesson.words.push(...entries);
+    // Keep previously completed lessons and their rewards on their original IDs.
+    for (let offset = 0; offset < entries.length; offset += 10) {
+      lesson.decks.push(entries.slice(offset, offset + 10));
+    }
+    for (const [word] of entries) {
+      const row = words.get(keyOf(word));
+      if (!row.f.includes(lesson.id)) row.f.push(lesson.id);
+    }
+    index.set(lesson.id, lesson);
+  }
+  return [...index.values()];
+}
 
 function loadProgress() {
   const empty = { xp: 0, days: {}, progress: {}, stars: {}, completed: {}, bestStreak: 0 };
@@ -233,7 +258,7 @@ function renderHome() {
     </div>
     <div class="home-columns">
       <section>
-        <div class="section-head"><h2>學習路線</h2><span class="muted">已通過 ${completed} / ${lessons.length} 關</span></div>
+        <div class="section-head"><h2>學習路線</h2><span class="muted">已通過 ${completed} / ${totalDecks} 組練習</span></div>
         <div class="action-stack">
           ${actionCard("構詞關卡", `用 ${lessons.length} 個字族練習拆字、例句與字義`, "blocks", "purp", "#families")}
           ${actionCard("英文單字卡", "先想意思，再翻卡看答案", "cards", "mint", "#practice/flash")}
@@ -264,19 +289,53 @@ function filterChips(options, active, category) {
 }
 
 function renderFamilies() {
-  const selected = trackLessons.filter((lesson) => familyFilter === "全部" || lesson.kind === familyFilter);
-  main.innerHTML = pageTitle("構詞關卡", "先拆字、再讀例句，最後測驗。從一個字首、字根或字尾，記住一整組相關單字。") + `
+  const grouped = lexicon.filter((word) => word.f.length);
+  const examGrouped = grouped.filter((word) => yearCount(word)).length;
+  main.innerHTML = pageTitle("構詞關卡", "找出單字的共同部分，搭配例句看它怎麼用。每組練完可立即測驗。") + `
+    <section class="panel family-overview">
+      <div>
+        <h2>${number.format(lessons.length)} 個字族</h2>
+        <p>收錄 ${number.format(grouped.length)} 個不同單字，包含 ${number.format(examGrouped)} / ${number.format(examWords.length)} 個本站學測用字。</p>
+        <p>其餘 ${number.format(lexicon.length - grouped.length)} 個詞可從單字庫按學測年度和級別練習。</p>
+      </div>
+      <div class="filter-row">
+        <a class="btn soft" href="#bank/supplement-exam">其餘學測詞 ${icon("right")}</a>
+        <a class="btn line" href="#bank/supplement">其餘高中字庫詞 ${icon("right")}</a>
+      </div>
+    </section>
     <div class="filter-row" aria-label="構詞類型">${filterChips(["全部", ...Object.keys(familyColors)], familyFilter, "family-filter")}</div>
+    <label class="search family-search">${icon("search")}<input id="family-query" aria-label="搜尋字族或單字" placeholder="搜尋字族或單字，例如 ject" value="${esc(familyQuery)}"></label>
+    <div id="family-results"></div>`;
+  renderFamilyResults();
+}
+
+function renderFamilyResults() {
+  const query = familyQuery.trim().toLowerCase();
+  const selected = trackLessons.filter((lesson) =>
+    (familyFilter === "全部" || lesson.kind === familyFilter) && (!query ||
+      [lesson.form, lesson.meaning, ...lesson.words.map(([word]) => word)]
+        .some((text) => keyOf(text).includes(query))));
+  const perPage = 24;
+  const maxPage = Math.max(1, Math.ceil(selected.length / perPage));
+  familyPage = Math.max(1, Math.min(maxPage, familyPage));
+  const visible = selected.slice((familyPage - 1) * perPage, familyPage * perPage);
+  document.querySelector("#family-results").innerHTML = `
+    <p class="muted family-result-count" aria-live="polite">${selected.length} 個字族</p>
     <div class="family-grid">
-      ${selected.map((lesson) => `<article class="panel family-card">
+      ${visible.map((lesson) => `<article class="panel family-card">
         <div class="family-card-top">${tag(lesson.kind, familyColors[lesson.kind])}
-          ${stats.completed[lesson.id] ? tag("已通過", "mint") : `<small class="muted">${lesson.words.length} 個單字</small>`}</div>
+          <small class="muted">${lesson.words.length} 個單字</small></div>
         <h2>${esc(lesson.form)}</h2>
         <p>${esc(lesson.meaning)}</p>
         <div class="tiles">${lesson.words.slice(0, 2).map(([word]) => `<span>${esc(word)}</span>`).join("")}</div>
         <a class="quiet" href="#lesson/${lesson.id}" aria-label="學習 ${esc(lesson.form)} 字族">學習這組 ${icon("right")}</a>
       </article>`).join("")}
-    </div>`;
+    </div>
+    ${maxPage > 1 ? `<div class="pagination" aria-label="字族列表分頁">
+      <button type="button" class="btn line" data-family-page="-1" ${familyPage === 1 ? "disabled" : ""}>上一頁</button>
+      <span>第 ${familyPage} / ${maxPage} 頁</span>
+      <button type="button" class="btn line" data-family-page="1" ${familyPage === maxPage ? "disabled" : ""}>下一頁</button>
+    </div>` : ""}`;
 }
 
 function exampleCredit(id, author) {
@@ -301,13 +360,25 @@ function lessonEntry(word, lesson = familyById.get(word.f[0])) {
 }
 
 function wordExample(word, entry = lessonEntry(word)) {
-  const example = entry ? entry.slice(5, 7) : window.EXAMPLES?.[keyOf(word.w)];
+  const example = entry?.[5] ? entry.slice(5, 7) : window.EXAMPLES?.[keyOf(word.w)];
   return example ? exampleLine(...example) : "";
 }
 
-function renderLesson(id) {
+function deckIndex(lesson, page) {
+  const index = Number(page) - 1;
+  return Number.isInteger(index) && index >= 0 && index < lesson.decks.length ? index : 0;
+}
+
+function deckPath(id, index) {
+  return index === 0 ? id : `${id}/${index + 1}`;
+}
+
+function renderLesson(id, page) {
   const lesson = familyById.get(id);
   if (!lesson) return renderFamilies();
+  const index = deckIndex(lesson, page);
+  const path = deckPath(id, index);
+  const passed = lesson.decks.filter((_, i) => stats.completed[deckPath(id, i)]).length;
   main.innerHTML = `<a class="quiet" href="#families">${icon("left")} 回所有字族</a>
     <section class="panel family-banner">
       ${tag(lesson.kind, familyColors[lesson.kind])}
@@ -315,17 +386,26 @@ function renderLesson(id) {
       <h2>${esc(lesson.meaning)}</h2>
       <p>${esc(lesson.intro)}</p>
     </section>
+    ${lesson.decks.length > 1 ? `<div class="pagination family-decks" aria-label="字族分組">
+      ${index > 0 ? `<a class="btn line" href="#lesson/${deckPath(id, index - 1)}">上一組</a>` : ""}
+      <span>第 ${index + 1} / ${lesson.decks.length} 組 · 已通過 ${passed} 組</span>
+      ${index < lesson.decks.length - 1 ? `<a class="btn line" href="#lesson/${deckPath(id, index + 1)}">下一組</a>` : ""}
+    </div>` : ""}
     <div class="family-example-grid">
-      ${lesson.words.map(([word, parts, hint, gloss, pos, example, translation]) => `
+      ${lesson.decks[index].map((entry) => {
+        const [word, parts, hint, gloss, pos] = entry;
+        const row = words.get(keyOf(word));
+        return `
         <article class="panel family-example">
           <header><h2>${esc(word)}</h2><div class="dialog-actions">${audioButton(word)}${starButton(word)}</div></header>
           <div class="parts" aria-label="拆字：${esc(parts)}">${parts.split(" + ").map((part) => `<span>${esc(part)}</span>`).join('<b aria-hidden="true">+</b>')}</div><p class="muted">${esc(hint)}</p>
           <p><small class="muted">${esc(pos)}</small> <strong>${esc(gloss)}</strong></p>
-          ${exampleLine(example, translation)}
-          ${examBadge(words.get(keyOf(word)))}
-        </article>`).join("")}
+          ${wordExample(row, entry)}
+          ${examBadge(row)}
+        </article>`;
+      }).join("")}
     </div>
-    <a class="btn primary family-foot" href="#practice/family/${lesson.id}">${icon("zap")} ${stats.completed[id] ? "再做字族測驗" : "開始字族測驗"} ${icon("arrow")}</a>`;
+    <a class="btn primary family-foot" href="#practice/family/${path}">${icon("zap")} ${stats.completed[path] ? "再做字族測驗" : "開始字族測驗"} ${icon("arrow")}</a>`;
 }
 
 function examBadge(word) {
@@ -389,7 +469,7 @@ function renderBank() {
         <option value="all">所有分級</option>${tiers.map((tier, index) => `<option value="${index}">${tier}</option>`).join("")}
       </select>
       <select id="family" aria-label="字族">
-        <option value="all">所有字族</option>${lessons.map((lesson) => `<option value="${lesson.id}">${esc(lesson.form)} · ${lesson.kind}</option>`).join("")}
+        <option value="all">所有字族</option><option value="supplement">未編入字族</option>${lessons.map((lesson) => `<option value="${lesson.id}">${esc(lesson.form)} · ${lesson.kind}</option>`).join("")}
       </select>
       <select id="examFilter" aria-label="學測年份與頻率">
         <option value="all">全部考頻</option><option value="repeat">跨年重複（2 年以上）</option><option value="seen">所有學測用字</option>
@@ -411,7 +491,7 @@ function matchingWords() {
   const results = lexicon.filter((word) => {
     const key = keyOf(word.w);
     return (tier === "all" || Number(tier) === word.t)
-      && (family === "all" || word.f.includes(family))
+      && (family === "all" || word.f.includes(family) || (family === "supplement" && !word.f.length))
       && (personal !== "stars" || stats.stars[key])
       && (personal !== "mastered" || stats.progress[key]?.step >= 2)
       && (examFilter === "all" || (examFilter === "repeat" ? word.study && yearCount(word) >= 2
@@ -436,7 +516,7 @@ function renderBankResults() {
   const start = (bankFilter.page - 1) * perPage;
   document.querySelector("#bank-results").innerHTML = `
     <div class="section-head"><small class="muted" aria-live="polite">${number.format(matches.length)} 個字詞</small>
-      <a class="quiet" href="#practice/bank" ${matches.length ? "" : 'hidden style="display:none"'}>練習這些字 ${icon("right")}</a></div>
+      <a class="quiet" href="#practice/bank" ${matches.length ? "" : 'hidden style="display:none"'}>${bankFilter.family === "supplement" ? "練習這頁" : "練習這些字"} ${icon("right")}</a></div>
     ${matches.length ? wordList(matches.slice(start, start + perPage)) : emptyPanel("找不到符合的單字", "試試其他關鍵字或篩選條件。")}
     ${maxPage > 1 ? `<div class="pagination">
       <button class="btn line" data-bank-page="-1" ${bankFilter.page === 1 ? "disabled" : ""}>上一頁</button>
@@ -509,6 +589,7 @@ function renderSources() {
           <li>部分釋義由 <a href="https://github.com/skywind3000/ECDICT" target="_blank" rel="noopener">ECDICT</a> 摘整並轉換為繁體中文。<a href="dictionary-license.txt">MIT 授權聲明</a></li>
           <li>部分例句及翻譯選自 <a href="https://tatoeba.org/" target="_blank" rel="noopener">Tatoeba</a>，使用 <a href="https://creativecommons.org/licenses/by/2.0/fr/" target="_blank" rel="noopener">CC BY 2.0 FR</a> 授權。作者及原句連結在例句下方，中文翻譯轉為繁體。</li>
           <li>標示「機器翻譯」的譯文使用 <a href="https://github.com/argosopentech/argospm-index" target="_blank" rel="noopener">Argos Translate</a> 英譯中模型產生。模型源自 Jörg Tiedemann 與 Santhosh Thottingal 的 <a href="https://aclanthology.org/2020.eamt-1.61/" target="_blank" rel="noopener">OPUS-MT</a>，以 <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> 授權。</li>
+          <li>新增構詞關卡結合人工整理的字根、合成字與 <a href="https://aclanthology.org/2021.sigmorphon-1.5/" target="_blank" rel="noopener">MorphyNet</a> 派生詞資料。構詞線索搭配例句使用，頁面另外提供未編入字族的單字。<a href="morphology-license.txt">MorphyNet 資料來源和 CC BY-SA 3.0 授權</a></li>
         </ul>
         <div class="quiz-foot"><a class="btn line" href="vocab.csv" download="單字王-高中學測字庫.csv">${icon("download")} 下載完整字庫</a></div>
       </section>
@@ -550,16 +631,20 @@ const practiceModes = {
   review: { title: "複習練習", back: "#review" },
 };
 
-function startPractice(mode, id) {
+function startPractice(mode, id, page) {
   const config = Object.hasOwn(practiceModes, mode) ? practiceModes[mode] : null;
-  const lesson = familyById.get(id);
+  const lesson = mode === "family" ? familyById.get(id) : null;
   if (!config || (mode === "family" && !lesson)) return null;
   const random = mode === "daily" ? randomFor(today()) : Math.random;
+  const index = lesson ? deckIndex(lesson, page) : 0;
+  const path = lesson ? deckPath(id, index) : "";
   let items;
   if (mode === "family") {
-    items = shuffle(lesson.words.map(([word]) => words.get(keyOf(word))), random);
+    items = shuffle(lesson.decks[index].map(([word]) => words.get(keyOf(word))), random);
   } else if (mode === "bank") {
-    items = shuffle(matchingWords()).slice(0, 10);
+    const matches = matchingWords();
+    const start = (bankFilter.page - 1) * 18;
+    items = bankFilter.family === "supplement" ? shuffle(matches.slice(start, start + 18)) : shuffle(matches).slice(0, 10);
   } else if (mode === "review") {
     items = reviewWords(reviewFilter).slice(0, 10);
   } else if (mode === "exam") {
@@ -585,8 +670,8 @@ function startPractice(mode, id) {
   }
   return {
     mode, lesson, items, random, index: 0, answers: [], xp: 0, choice: null, options: null,
-    flipped: false, done: false, title: lesson ? `字族測驗 · ${lesson.form}` : config.title,
-    back: lesson ? `#lesson/${id}` : config.back,
+    flipped: false, done: false, lessonPath: path, title: lesson ? `字族測驗 · ${lesson.form}` : config.title,
+    back: lesson ? `#lesson/${path}` : config.back,
   };
 }
 
@@ -594,13 +679,27 @@ function glossParts(text) {
   return text.split("；").map((part) => part.replace(/[（(].*?[）)]/g, "").trim());
 }
 
+function morphologyClue(word, lesson) {
+  const entry = lessonEntry(word, lesson);
+  return entry[7] ? entry[1] : entry[2];
+}
+
+function isMorphQuestion(current) {
+  return current.lesson && current.index === 0 &&
+    new Set(current.items.map((item) => morphologyClue(item, current.lesson))).size >= 2;
+}
+
 function optionsFor(word) {
   const current = practice;
-  if (current.lesson && current.index === 0) {
-    const options = shuffle(current.items, current.random).filter((item) => item !== word).slice(0, 3);
-    return shuffle([word, ...options], current.random).map((item) => ({
-      word: item, correct: item === word, text: lessonEntry(item, current.lesson)[2],
-    }));
+  if (isMorphQuestion(current)) {
+    const options = [{ word, correct: true, text: morphologyClue(word, current.lesson) }];
+    for (const item of shuffle(current.items, current.random)) {
+      const text = morphologyClue(item, current.lesson);
+      if (options.some((option) => option.text === text)) continue;
+      options.push({ word: item, correct: false, text });
+      if (options.length === 4) break;
+    }
+    return shuffle(options, current.random);
   }
   const preferEnglish = current.mode === "family" && current.index % 2 === 1;
   const meaning = glossParts(word.d);
@@ -652,9 +751,9 @@ function recordAnswer(word, correct) {
 function finishPractice() {
   const current = practice;
   current.done = true;
-  if (current.lesson && !stats.completed[current.lesson.id] &&
+  if (current.lesson && !stats.completed[current.lessonPath] &&
       current.answers.filter((answer) => answer.correct).length / current.items.length >= 0.8) {
-    stats.completed[current.lesson.id] = today();
+    stats.completed[current.lessonPath] = today();
     stats.xp += 20;
     current.xp += 20;
     current.bonus = true;
@@ -727,7 +826,7 @@ function renderFlash(word) {
 function renderQuestion(word) {
   const current = practice;
   const reverse = current.mode === "family" && current.index % 2 === 1;
-  const morph = Boolean(current.lesson && current.index === 0);
+  const morph = isMorphQuestion(current);
   current.options ||= optionsFor(word);
   const answered = current.choice !== null;
   const answer = current.answers.at(-1);
@@ -884,7 +983,7 @@ function openWord(word, trigger) {
         const lesson = familyById.get(id);
         const entry = lessonEntry(word, lesson);
         return `<div class="dialog-body"><p class="hint">${esc(entry[1])} · ${esc(entry[2])}</p>
-          ${exampleLine(entry[5], entry[6])}
+          ${wordExample(word, entry)}
           <a class="quiet" href="#lesson/${id}">前往 ${esc(lesson.form)} 字族 ${icon("right")}</a></div>`;
       }).join("")}
       <small class="muted">${esc(word.source)}</small>
@@ -914,17 +1013,20 @@ function closeMenu() {
 }
 
 function route() {
-  const [requested, option, id] = location.hash.slice(1).split("/");
+  const [requested, option, id, deck] = location.hash.slice(1).split("/");
   const page = Object.hasOwn(names, requested) ? requested : "home";
   if (dialog.open) dialog.close();
   closeMenu();
   shell(page);
   if (page === "home") renderHome();
   if (page === "families") renderFamilies();
-  if (page === "lesson") renderLesson(option);
+  if (page === "lesson") renderLesson(option, id);
   if (page === "exam") renderExam();
   if (page === "bank") {
-    if (["repeat", "seen", ...examYears.map(String)].includes(option)) {
+    if (option === "supplement" || option === "supplement-exam") {
+      Object.assign(bankFilter, { query: "", tier: "all", family: "supplement", personal: "all",
+        examFilter: option === "supplement-exam" ? "seen" : "all", page: 1 });
+    } else if (["repeat", "seen", ...examYears.map(String)].includes(option)) {
       Object.assign(bankFilter, { query: "", tier: "all", family: "all", personal: "all", examFilter: option, page: 1 });
     }
     renderBank();
@@ -933,7 +1035,7 @@ function route() {
   if (page === "rewards") renderRewards();
   if (page === "sources") renderSources();
   if (page === "practice") {
-    practice = startPractice(option, id);
+    practice = startPractice(option, id, deck);
     renderPractice();
   }
   document.title = page === "home" ? "單字王｜高中學測版" : `${names[page]} · 單字王`;
@@ -961,8 +1063,16 @@ document.addEventListener("click", (event) => {
   if (button.hasAttribute("data-close")) dialog.close();
   if (family) {
     familyFilter = family;
+    familyPage = 1;
     renderFamilies();
     main.querySelector('[aria-pressed="true"]')?.focus();
+  }
+  if (button.dataset.familyPage) {
+    familyPage += Number(button.dataset.familyPage);
+    renderFamilyResults();
+    const first = document.querySelector("#family-results .family-card a");
+    first?.focus();
+    first?.closest(".family-card").scrollIntoView({ block: "center" });
   }
   if (review) {
     reviewFilter = review;
@@ -1000,6 +1110,12 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.id === "family-query") {
+    familyQuery = event.target.value;
+    familyPage = 1;
+    renderFamilyResults();
+    return;
+  }
   if (event.target.id !== "query") return;
   bankFilter.query = event.target.value;
   bankFilter.page = 1;

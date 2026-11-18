@@ -1,0 +1,16 @@
+The MorphyNet-derived relations in morphology.js are adapted from:
+K. Batsuren, G. Bella, and F. Giunchiglia (2021).
+MorphyNet: a Large Multilingual Database of Derivational and Inflectional Morphology.
+Proceedings of SIGMORPHON, pp. 39–48.
+https://aclanthology.org/2021.sigmorphon-1.5/
+https://github.com/kbatsuren/MorphyNet
+
+Source file: eng/eng.derivational.v1.tsv
+Source revision: 378144f64df58c78db5245af19d16a511ccecf3a
+
+Entries have been filtered, matched to the GSAT word bank, reorganized into
+families, and annotated. The adapted MorphyNet relations are available under
+Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0).
+https://creativecommons.org/licenses/by-sa/3.0/
+
+MorphyNet entries in morphology.js have "morphynet" as their final field.
