@@ -13,6 +13,8 @@ const main = document.querySelector("#main");
 const dialog = document.querySelector("#word-dialog");
 const toast = document.querySelector("#toast");
 const storageKey = "word-king-gsat-progress-v1";
+const speechRateKey = "word-king-gsat-speech-rate";
+const speechRates = [0.5, 0.75, 1, 1.25, 1.5];
 const dailyGoal = 20;
 const taipeiDate = new Intl.DateTimeFormat("en-CA", {
   year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Taipei",
@@ -42,6 +44,7 @@ let practice = null;
 let toastTimer;
 let dialogWord = null;
 let dialogTrigger = null;
+let speechRate = loadSpeechRate();
 
 function loadProgress() {
   const empty = { xp: 0, days: {}, progress: {}, stars: {}, completed: {}, bestStreak: 0 };
@@ -772,6 +775,37 @@ function renderPractice() {
   </div>`;
 }
 
+function loadSpeechRate() {
+  try {
+    const saved = Number(localStorage.getItem(speechRateKey));
+    if (speechRates.includes(saved)) return saved;
+  } catch {
+    // The browser may block storage in a private session or local file.
+  }
+  return 1;
+}
+
+function speechRateControl() {
+  return `<label class="speech-rate"><span>語速</span>
+    <select data-speech-rate aria-label="英文朗讀語速">
+      ${speechRates.map((rate) => `<option value="${rate}" ${rate === speechRate ? "selected" : ""}>${rate}×</option>`).join("")}
+    </select>
+  </label>`;
+}
+
+function setSpeechRate(value) {
+  if (!speechRates.includes(value)) return;
+  speechRate = value;
+  document.querySelectorAll("[data-speech-rate]").forEach((select) => {
+    select.value = String(value);
+  });
+  try {
+    localStorage.setItem(speechRateKey, String(value));
+  } catch {
+    // The preference still applies for this open page.
+  }
+}
+
 function say(word) {
   if (!("speechSynthesis" in window)) {
     showToast("這個瀏覽器目前無法播放英文語音。");
@@ -783,7 +817,7 @@ function say(word) {
   const voice = voices.find((item) => item.lang === "en-US") || voices.find((item) => item.lang.startsWith("en"));
   speech.lang = voice?.lang || "en-US";
   if (voice) speech.voice = voice;
-  speech.rate = 0.88;
+  speech.rate = speechRate;
   speech.onerror = (event) => {
     if (!["canceled", "interrupted"].includes(event.error)) showToast("目前無法播放英文語音。可確認裝置已安裝英文語音。");
   };
@@ -801,7 +835,10 @@ function openWord(word, trigger) {
       </div>
     </header>
     <div class="dialog-body">
-      <div>${tag(tiers[word.t], tierColors[word.t])} ${item?.step >= 2 ? tag("已精熟", "mint") : ""}</div>
+      <div class="word-dialog-settings">
+        <div>${tag(tiers[word.t], tierColors[word.t])} ${item?.step >= 2 ? tag("已精熟", "mint") : ""}</div>
+        ${speechRateControl()}
+      </div>
       <p><small class="muted">${esc(word.p)}</small> <strong>${esc(word.d)}</strong></p>
       ${examLinks(word)}
       ${word.a.length ? `<p class="muted">試卷中的合併詞形：${word.a.map(esc).join("、")}</p>` : ""}
@@ -933,6 +970,10 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-speech-rate]")) {
+    setSpeechRate(Number(event.target.value));
+    return;
+  }
   if (!["tier", "family", "personal", "examFilter"].includes(event.target.id)) return;
   bankFilter[event.target.id] = event.target.value;
   bankFilter.page = 1;
@@ -952,4 +993,5 @@ dialog.addEventListener("close", () => {
   dialogTrigger = null;
 });
 window.addEventListener("hashchange", route);
+document.querySelector("#speech-preference").innerHTML = speechRateControl();
 route();
