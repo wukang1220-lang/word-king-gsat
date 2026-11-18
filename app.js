@@ -15,6 +15,8 @@ const toast = document.querySelector("#toast");
 const storageKey = "word-king-gsat-progress-v1";
 const speechRateKey = "word-king-gsat-speech-rate";
 const speechRates = [0.5, 0.75, 1, 1.25, 1.5];
+const fontSizeKey = "word-king-gsat-font-size";
+const fontSizes = { small: "小", large: "大", "extra-large": "特大" };
 const dailyGoal = 20;
 const taipeiDate = new Intl.DateTimeFormat("en-CA", {
   year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Taipei",
@@ -45,6 +47,8 @@ let toastTimer;
 let dialogWord = null;
 let dialogTrigger = null;
 let speechRate = loadSpeechRate();
+let fontSize = loadFontSize();
+document.documentElement.dataset.fontSize = fontSize;
 
 function loadProgress() {
   const empty = { xp: 0, days: {}, progress: {}, stars: {}, completed: {}, bestStreak: 0 };
@@ -806,6 +810,39 @@ function setSpeechRate(value) {
   }
 }
 
+function loadFontSize() {
+  try {
+    const saved = localStorage.getItem(fontSizeKey);
+    if (Object.hasOwn(fontSizes, saved)) return saved;
+  } catch {
+    // The default still works when browser storage is blocked.
+  }
+  return "small";
+}
+
+function fontSizeControl() {
+  return `<label class="font-size"><span>字體</span>
+    <select data-font-size-control aria-label="全站字體大小">
+      ${Object.entries(fontSizes).map(([size, label]) =>
+        `<option value="${size}" ${size === fontSize ? "selected" : ""}>${label}</option>`).join("")}
+    </select>
+  </label>`;
+}
+
+function setFontSize(value) {
+  if (!Object.hasOwn(fontSizes, value)) return;
+  fontSize = value;
+  document.documentElement.dataset.fontSize = value;
+  document.querySelectorAll("[data-font-size-control]").forEach((select) => {
+    select.value = value;
+  });
+  try {
+    localStorage.setItem(fontSizeKey, value);
+  } catch {
+    // The preference still applies for this open page.
+  }
+}
+
 function say(word) {
   if (!("speechSynthesis" in window)) {
     showToast("這個瀏覽器目前無法播放英文語音。");
@@ -837,7 +874,7 @@ function openWord(word, trigger) {
     <div class="dialog-body">
       <div class="word-dialog-settings">
         <div>${tag(tiers[word.t], tierColors[word.t])} ${item?.step >= 2 ? tag("已精熟", "mint") : ""}</div>
-        ${speechRateControl()}
+        <div class="reading-controls">${fontSizeControl()}${speechRateControl()}</div>
       </div>
       <p><small class="muted">${esc(word.p)}</small> <strong>${esc(word.d)}</strong></p>
       ${examLinks(word)}
@@ -970,6 +1007,10 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-font-size-control]")) {
+    setFontSize(event.target.value);
+    return;
+  }
   if (event.target.matches("[data-speech-rate]")) {
     setSpeechRate(Number(event.target.value));
     return;
@@ -993,5 +1034,6 @@ dialog.addEventListener("close", () => {
   dialogTrigger = null;
 });
 window.addEventListener("hashchange", route);
+document.querySelector("#font-preference").innerHTML = fontSizeControl();
 document.querySelector("#speech-preference").innerHTML = speechRateControl();
 route();
